@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>FreshTrack - Supermarket Expiry & Barcode Manager</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- HTML5-QRCode Scanner Library -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- SheetJS for Formatted Excel (.xlsx) Export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar & mobile touch optimization */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    body { -webkit-tap-highlight-color: transparent; }
+    #interactive video { width: 100% !important; border-radius: 0.75rem; object-fit: cover; }
+    .nav-tab.active { color: #10b981; border-top-color: #10b981; }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans select-none antialiased bg-slate-950 text-slate-100">
+
+  <!-- AUTH OVERLAY / LOGIN MODAL -->
+  <div id="authOverlay" class="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center p-4">
+    <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+      <div class="text-center space-y-1">
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 mx-auto flex items-center justify-center text-slate-950 font-bold text-xl shadow-lg shadow-brand-500/20">
+          FT
+        </div>
+        <h2 class="text-xl font-bold text-white">FreshTrack Login</h2>
+        <p class="text-xs text-slate-400">Sign in or register to sync your inventory sheet</p>
+      </div>
+
+      <!-- Auth Tabs -->
+      <div class="flex border-b border-slate-800 text-sm">
+        <button id="tabLoginBtn" onclick="toggleAuthTab('login')" class="flex-1 py-2 font-semibold text-brand-400 border-b-2 border-brand-500">Sign In</button>
+        <button id="tabRegisterBtn" onclick="toggleAuthTab('register')" class="flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent">Register</button>
+      </div>
+
+      <!-- Form Inputs -->
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Username / User ID</label>
+          <input type="text" id="authUsername" placeholder="e.g. store_user1" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-brand-500">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Password</label>
+          <input type="password" id="authPassword" placeholder="••••••••" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-brand-500">
+        </div>
+
+        <!-- Google Apps Script Sync Config -->
+        <div class="pt-2 border-t border-slate-800">
+          <label class="block text-xs text-slate-400 mb-1">Google Apps Script Web App URL (Google Drive/Sheets Sync)</label>
+          <input type="url" id="googleScriptUrl" placeholder="https://script.google.com/macros/s/.../exec" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-slate-300 focus:outline-none focus:border-brand-500">
+          <p class="text-[10px] text-slate-500 mt-1">Saves user data into dedicated user worksheets inside one Google Sheet on Google Drive.</p>
+        </div>
+      </div>
+
+      <button id="authSubmitBtn" onclick="handleAuthSubmit()" class="w-full py-3 bg-gradient-to-r from-brand-600 to-emerald-500 hover:from-brand-500 hover:to-emerald-400 text-white font-semibold text-sm rounded-xl shadow-lg shadow-brand-600/30 transition-all">
+        Sign In
+      </button>
+    </div>
+  </div>
+
+  <!-- Mobile App Frame Container -->
+  <div class="flex-1 flex flex-col max-w-md w-full mx-auto bg-slate-900 shadow-2xl relative overflow-hidden border-x border-slate-800">
+
+    <!-- Top App Header -->
+    <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between z-20 sticky top-0">
+      <div class="flex items-center space-x-2">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-slate-950 font-bold shadow-lg shadow-brand-500/20">
+          <i class="fa-solid font-black text-lg">FT</i>
+        </div>
+        <div>
+          <h1 class="font-bold text-base tracking-wide text-white leading-tight">FreshTrack Pro</h1>
+          <p class="text-xs text-slate-400 flex items-center gap-1">
+            <span id="currentUserLabel">User: Guest</span> | <span id="syncStatusBadge" class="text-slate-500">Offline</span>
+          </p>
+        </div>
+      </div>
+      
+      <div class="flex items-center space-x-2">
+        <button onclick="syncToGoogleSheets()" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-brand-400 transition-colors" title="Sync to Google Sheet">
+          <i class="fa-solid fa-cloud-arrow-up text-sm"></i>
+        </button>
+        <button id="notificationToggleBtn" onclick="requestNotificationPermission()" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors relative" title="Enable Expiry Notifications">
+          <i class="fa-solid fa-bell text-sm"></i>
+          <span id="notifBadge" class="hidden absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        </button>
+        <button onclick="exportExcelFormatted()" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors" title="Export Formatted Excel (.xlsx)">
+          <i class="fa-solid fa-file-excel text-sm"></i>
+        </button>
+        <button onclick="logoutUser()" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-400 transition-colors" title="Logout">
+          <i class="fa-solid fa-right-from-bracket text-sm"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Dynamic Panels -->
+    <main class="flex-1 overflow-y-auto pb-24 p-4 space-y-4">
+
+      <!-- ================= SECTION 1: SCAN & RECORD ================= -->
+      <section id="tab-scan" class="space-y-4">
+        
+        <!-- Live Camera Scanner Card -->
+        <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700/60 shadow-lg relative overflow-hidden">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xs uppercase tracking-wider font-semibold text-slate-400 flex items-center gap-2">
+              <i class="fa-solid fa-camera text-brand-500"></i> Barcode Camera Scanner
+            </h2>
+            <button id="toggleCameraBtn" onclick="toggleScanner()" class="px-3 py-1 rounded-lg text-xs font-medium bg-brand-500/20 text-brand-400 border border-brand-500/30 hover:bg-brand-500/30 transition-all">
+              <i class="fa-solid fa-power-off mr-1"></i> Toggle Camera
+            </button>
+          </div>
+
+          <!-- Scanner Canvas Container -->
+          <div id="reader-container" class="relative hidden bg-slate-950 rounded-xl overflow-hidden border border-slate-700 min-h-[180px] flex items-center justify-center">
+            <div id="reader" class="w-full"></div>
+            <div class="absolute inset-0 pointer-events-none border-2 border-brand-500/50 rounded-xl flex items-center justify-center">
+              <div class="w-48 h-24 border-2 border-dashed border-brand-400 rounded-lg animate-pulse"></div>
+            </div>
+          </div>
+          
+          <!-- Barcode Manual Input & Search -->
+          <div class="mt-3 flex gap-2">
+            <div class="relative flex-1">
+              <i class="fa-solid fa-barcode absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+              <input type="text" id="barcodeInput" placeholder="Scan or enter barcode..." 
+                     class="w-full pl-9 pr-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm font-mono text-white focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
+                     oninput="handleBarcodeManualInput(this.value)">
+            </div>
+            <button onclick="lookupBarcode(document.getElementById('barcodeInput').value)" class="px-4 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-medium text-sm rounded-xl transition-all flex items-center gap-1 shadow-lg shadow-brand-600/30">
+              <i class="fa-solid fa-magnifying-glass"></i>
+            </button>
+          </div>
+          <p id="lookupStatus" class="text-xs text-slate-400 mt-2 min-h-[18px]"></p>
+        </div>
+
+        <!-- Product Details Form -->
+        <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700/60 shadow-lg space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xs uppercase tracking-wider font-semibold text-slate-400 flex items-center gap-2">
+              <i class="fa-solid fa-box-open text-brand-500"></i> Item Entry
+            </h2>
+            <!-- Google Search Fallback Button -->
+            <button id="googleSearchBtn" onclick="searchGoogleForBarcode()" class="hidden text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1">
+              <i class="fa-brands fa-google"></i> Search Barcode on Google
+            </button>
+          </div>
+
+          <!-- Product Preview Image & Upload -->
+          <div class="flex items-center gap-3 p-3 bg-slate-950 rounded-xl border border-slate-700/60">
+            <div class="w-16 h-16 rounded-lg bg-slate-900 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0 relative group">
+              <img id="productImagePreview" src="" alt="" class="w-full h-full object-cover hidden">
+              <i id="productImagePlaceholder" class="fa-solid fa-image text-slate-600 text-xl"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <label class="block text-xs font-medium text-slate-300 mb-1">Product Image</label>
+              <input type="file" id="productImageInput" accept="image/*" onchange="handleImageUpload(this)" class="block w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-brand-400 hover:file:bg-slate-700 cursor-pointer">
+              <p class="text-[10px] text-slate-500 mt-1">Auto-fetches from barcode or upload custom image</p>
+            </div>
+          </div>
+
+          <!-- Product Name Input (Includes Size automatically) -->
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Product Name & Size</label>
+            <input type="text" id="productName" placeholder="Product name & size will auto-fill..." 
+                   class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-brand-500 transition-all">
+            <p class="text-[11px] text-slate-500 mt-1">Auto-fills name & size together upon scanning (e.g. Coca-Cola 330ml).</p>
+          </div>
+
+          <!-- Company / Manufacturer Name Input -->
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Company / Manufacturer</label>
+            <input type="text" id="companyName" placeholder="Company name (e.g., Nestle, Coca-Cola Co)..." 
+                   class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-brand-500 transition-all">
+          </div>
+
+          <!-- Manual Expiry Date & Reminder Window Row -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Expiry Date (Manual)</label>
+              <input type="date" id="expiryDate" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-brand-500 transition-all">
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Reminder Alert (Days Before)</label>
+              <input type="number" id="reminderDays" value="7" min="1" placeholder="e.g. 10 or 15 days" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-brand-500 transition-all">
+            </div>
+          </div>
+
+          <!-- Category & Quantity Row -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Category</label>
+              <select id="productCategory" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-brand-500">
+                <option value="Dairy">🥛 Dairy</option>
+                <option value="Bakery">🍞 Bakery</option>
+                <option value="Meat">🥩 Meat & Seafood</option>
+                <option value="Produce">🥬 Produce</option>
+                <option value="Beverages">🧃 Beverages</option>
+                <option value="Snacks">🍿 Snacks</option>
+                <option value="Frozen">🧊 Frozen Foods</option>
+                <option value="Dry Goods">🌾 Dry Goods</option>
+                <option value="General">📦 General</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Batch Quantity</label>
+              <div class="flex items-center">
+                <button onclick="adjustQty(-1)" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-l-xl text-slate-300 hover:bg-slate-800">-</button>
+                <input type="number" id="productQty" value="1" min="1" class="w-full py-2 bg-slate-950 border-y border-slate-700 text-center text-sm text-white focus:outline-none">
+                <button onclick="adjustQty(1)" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-r-xl text-slate-300 hover:bg-slate-800">+</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Submit Record Button -->
+          <button onclick="saveInventoryItem()" class="w-full py-3 bg-gradient-to-r from-brand-600 to-emerald-500 hover:from-brand-500 hover:to-emerald-400 text-white font-semibold text-sm rounded-xl shadow-lg shadow-brand-600/30 transition-all mt-2 flex items-center justify-center gap-2">
+            <i class="fa-solid fa-plus-circle"></i> Save to Expiry Database
+          </button>
+        </div>
+      </section>
+
+      <!-- ================= SECTION 2: INVENTORY & EXPIRY ALERTS ================= -->
+      <section id="tab-inventory" class="space-y-4 hidden">
+        
+        <!-- Dashboard Summary Stats Cards -->
+        <div class="grid grid-cols-4 gap-2">
+          <div onclick="filterByStatus('all')" class="stat-card active-filter bg-slate-800/90 border border-slate-700 p-2.5 rounded-xl text-center cursor-pointer hover:border-slate-500 transition-all">
+            <span class="block text-lg font-bold text-slate-100" id="count-all">0</span>
+            <span class="text-[10px] text-slate-400 uppercase font-semibold">Total</span>
+          </div>
+          <div onclick="filterByStatus('expired')" class="stat-card bg-rose-950/40 border border-rose-800/60 p-2.5 rounded-xl text-center cursor-pointer hover:border-rose-500 transition-all">
+            <span class="block text-lg font-bold text-rose-400" id="count-expired">0</span>
+            <span class="text-[10px] text-rose-300 uppercase font-semibold">Expired</span>
+          </div>
+          <div onclick="filterByStatus('soon')" class="stat-card bg-amber-950/40 border border-amber-800/60 p-2.5 rounded-xl text-center cursor-pointer hover:border-amber-500 transition-all">
+            <span class="block text-lg font-bold text-amber-400" id="count-soon">0</span>
+            <span class="text-[10px] text-amber-300 uppercase font-semibold">Reminder</span>
+          </div>
+          <div onclick="filterByStatus('good')" class="stat-card bg-emerald-950/40 border border-emerald-800/60 p-2.5 rounded-xl text-center cursor-pointer hover:border-emerald-500 transition-all">
+            <span class="block text-lg font-bold text-emerald-400" id="count-good">0</span>
+            <span class="text-[10px] text-emerald-300 uppercase font-semibold">Safe</span>
+          </div>
+        </div>
+
+        <!-- Filter & Search Controls (Search by Company Name Trigger Alert List) -->
+        <div class="space-y-2">
+          <div class="relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+            <input type="text" id="searchInventoryInput" oninput="handleSearchInput()" placeholder="Search item, company, or barcode..." 
+                   class="w-full pl-8 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-brand-500">
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <select id="companyFilter" onchange="renderInventoryList()" class="px-2 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-300 focus:outline-none">
+              <option value="ALL">All Companies</option>
+            </select>
+            <select id="categoryFilter" onchange="renderInventoryList()" class="px-2 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-300 focus:outline-none">
+              <option value="ALL">All Categories</option>
+              <option value="Dairy">Dairy</option>
+              <option value="Bakery">Bakery</option>
+              <option value="Meat">Meat</option>
+              <option value="Produce">Produce</option>
+              <option value="Beverages">Beverages</option>
+              <option value="Snacks">Snacks</option>
+              <option value="Frozen">Frozen</option>
+              <option value="Dry Goods">Dry Goods</option>
+              <option value="General">General</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Notification Banner Container when filtering by company -->
+        <div id="companyAlertBanner" class="hidden p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-bell animate-bounce text-amber-400 text-sm"></i>
+            <span id="companyAlertText">Company search activated.</span>
+          </div>
+          <button onclick="triggerNotificationAlert()" class="px-2 py-1 bg-amber-500 text-slate-950 font-bold rounded text-[10px] hover:bg-amber-400">
+            Show Alert
+          </button>
+        </div>
+
+        <!-- Inventory Dynamic List -->
+        <div id="inventoryContainer" class="space-y-2.5">
+          <!-- Dynamically Rendered Inventory Items -->
+        </div>
+      </section>
+
+      <!-- ================= SECTION 3: BARCODE MAPPER DATABASE ================= -->
+      <section id="tab-mapping" class="space-y-4 hidden">
+        <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700/60 shadow-lg">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-xs uppercase tracking-wider font-semibold text-slate-400 flex items-center gap-2">
+              <i class="fa-solid fa-database text-brand-500"></i> Local Barcode Mappings
+            </h2>
+            <span id="mappingCount" class="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full font-mono">0 codes</span>
+          </div>
+          <p class="text-xs text-slate-400 mb-3">Custom barcode-to-product names saved locally when scanned or edited.</p>
+          
+          <div id="mappingList" class="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+            <!-- Mappings rendered dynamically -->
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="absolute bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 grid grid-cols-3 z-30">
+      <button onclick="switchTab('scan')" id="nav-scan" class="nav-tab active flex flex-col items-center justify-center py-2.5 border-t-2 border-transparent text-slate-400 hover:text-slate-200 transition-all">
+        <i class="fa-solid fa-barcode-read text-lg mb-0.5"></i>
+        <span class="text-[10px] font-medium">Scan & Record</span>
+      </button>
+
+      <button onclick="switchTab('inventory')" id="nav-inventory" class="nav-tab flex flex-col items-center justify-center py-2.5 border-t-2 border-transparent text-slate-400 hover:text-slate-200 transition-all relative">
+        <i class="fa-solid fa-list-check text-lg mb-0.5"></i>
+        <span class="text-[10px] font-medium">Expiry Alerts</span>
+        <span id="navAlertBadge" class="hidden absolute top-2 right-8 w-2 h-2 rounded-full bg-rose-500"></span>
+      </button>
+
+      <button onclick="switchTab('mapping')" id="nav-mapping" class="nav-tab flex flex-col items-center justify-center py-2.5 border-t-2 border-transparent text-slate-400 hover:text-slate-200 transition-all">
+        <i class="fa-solid fa-database text-lg mb-0.5"></i>
+        <span class="text-[10px] font-medium">Barcode DB</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Toast Notification element -->
+  <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-800 border border-slate-700 text-white text-xs px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 opacity-0 pointer-events-none transition-all duration-300">
+    <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400"></i>
+    <span id="toastMsg">Action completed successfully</span>
+  </div>
+
+  <!-- Application Logic -->
+  <script>
+    // --- STATE MANAGEMENT ---
+    let users = JSON.parse(localStorage.getItem('ft_users') || '{}');
+    let currentUser = localStorage.getItem('ft_current_user') || null;
+    let googleScriptUrl = localStorage.getItem('ft_google_script_url') || '';
+
+    let inventory = [];
+    let barcodeMap = {};
+    let html5QrCode = null;
+    let isScannerRunning = false;
+    let currentFilterStatus = 'all';
+    let currentImageDataUrl = '';
+    let currentAuthTab = 'login';
+
+    window.onload = function() {
+      document.getElementById('googleScriptUrl').value = googleScriptUrl;
+
+      if (!currentUser) {
+        showAuthOverlay();
+      } else {
+        hideAuthOverlay();
+        loadUserData(currentUser);
+      }
+    };
+
+    // --- AUTHENTICATION & MULTI-USER MANAGEMENT ---
+    function toggleAuthTab(tab) {
+      currentAuthTab = tab;
+      const loginBtn = document.getElementById('tabLoginBtn');
+      const registerBtn = document.getElementById('tabRegisterBtn');
+      const submitBtn = document.getElementById('authSubmitBtn');
+
+      if (tab === 'login') {
+        loginBtn.className = "flex-1 py-2 font-semibold text-brand-400 border-b-2 border-brand-500";
+        registerBtn.className = "flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent";
+        submitBtn.innerText = "Sign In";
+      } else {
+        registerBtn.className = "flex-1 py-2 font-semibold text-brand-400 border-b-2 border-brand-500";
+        loginBtn.className = "flex-1 py-2 font-semibold text-slate-400 border-b-2 border-transparent";
+        submitBtn.innerText = "Register New User";
+      }
+    }
+
+    function showAuthOverlay() {
+      document.getElementById('authOverlay').classList.remove('hidden');
+    }
+
+    function hideAuthOverlay() {
+      document.getElementById('authOverlay').classList.add('hidden');
+    }
+
+    function handleAuthSubmit() {
+      const uInput = document.getElementById('authUsername').value.trim();
+      const pInput = document.getElementById('authPassword').value.trim();
+      const scriptUrl = document.getElementById('googleScriptUrl').value.trim();
+
+      if (!uInput || !pInput) {
+        showToast('Please enter both username and password', 'error');
+        return;
+      }
+
+      googleScriptUrl = scriptUrl;
+      localStorage.setItem('ft_google_script_url', googleScriptUrl);
+
+      if (currentAuthTab === 'register') {
+        if (users[uInput]) {
+          showToast('User already exists! Try logging in.', 'error');
+          return;
+        }
+        users[uInput] = { password: pInput };
+        localStorage.setItem('ft_users', JSON.stringify(users));
+        showToast('Registration successful! Logging in...');
+      } else {
+        if (!users[uInput] || users[uInput].password !== pInput) {
+          showToast('Invalid username or password', 'error');
+          return;
+        }
+      }
+
+      currentUser = uInput;
+      localStorage.setItem('ft_current_user', currentUser);
+      hideAuthOverlay();
+      loadUserData(currentUser);
+    }
+
+    function logoutUser() {
+      currentUser = null;
+      localStorage.removeItem('ft_current_user');
+      showAuthOverlay();
+      showToast('Logged out successfully');
+    }
+
+    function loadUserData(username) {
+      document.getElementById('currentUserLabel').innerText = `User: ${username}`;
+      
+      const savedInv = localStorage.getItem(`ft_inventory_${username}`);
+      const savedMap = localStorage.getItem(`ft_barcodemap_${username}`);
+
+      inventory = savedInv ? JSON.parse(savedInv) : [];
+      barcodeMap = savedMap ? JSON.parse(savedMap) : {};
+
+      if (inventory.length === 0 && Object.keys(barcodeMap).length === 0) {
+        seedInitialData();
+      }
+
+      updateCompanyFilterDropdown();
+      updateCounts();
+      renderInventoryList();
+      renderMappingList();
+      checkExpiryNotifications();
+    }
+
+    function seedInitialData() {
+      const today = new Date();
+      const formatDate = (daysAdded) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() + daysAdded);
+        return d.toISOString().split('T')[0];
+      };
+
+      inventory = [
+        { id: '1', barcode: '737628064502', name: 'Thai Peanut Noodle Kit 226g', company: 'Simply Asia', category: 'Dry Goods', expiryDate: formatDate(-2), reminderDays: 7, qty: 5, status: 'active', image: 'https://images.openfoodfacts.org/images/products/007/376/280/64502/front_en.6.400.jpg' },
+        { id: '2', barcode: '5449000000996', name: 'Coca-Cola Zero Sugar 330ml', company: 'The Coca-Cola Company', category: 'Beverages', expiryDate: formatDate(0), reminderDays: 7, qty: 12, status: 'active', image: 'https://images.openfoodfacts.org/images/products/544/900/000/0996/front_en.71.400.jpg' },
+        { id: '3', barcode: '3017620422003', name: 'Nutella Hazelnut Spread 400g', company: 'Ferrero', category: 'Snacks', expiryDate: formatDate(4), reminderDays: 10, qty: 8, status: 'active', image: 'https://images.openfoodfacts.org/images/products/301/762/042/2003/front_fr.314.400.jpg' },
+        { id: '4', barcode: '8715700421377', name: 'Heinz Tomato Ketchup 500g', company: 'Kraft Heinz', category: 'General', expiryDate: formatDate(18), reminderDays: 15, qty: 15, status: 'active', image: 'https://images.openfoodfacts.org/images/products/871/570/042/1377/front_en.44.400.jpg' }
+      ];
+
+      barcodeMap = {
+        '737628064502': { name: 'Thai Peanut Noodle Kit 226g', company: 'Simply Asia', image: 'https://images.openfoodfacts.org/images/products/007/376/280/64502/front_en.6.400.jpg' },
+        '5449000000996': { name: 'Coca-Cola Zero Sugar 330ml', company: 'The Coca-Cola Company', image: 'https://images.openfoodfacts.org/images/products/544/900/000/0996/front_en.71.400.jpg' },
+        '3017620422003': { name: 'Nutella Hazelnut Spread 400g', company: 'Ferrero', image: 'https://images.openfoodfacts.org/images/products/301/762/042/2003/front_fr.314.400.jpg' },
+        '8715700421377': { name: 'Heinz Tomato Ketchup 500g', company: 'Kraft Heinz', image: 'https://images.openfoodfacts.org/images/products/871/570/042/1377/front_en.44.400.jpg' }
+      };
+
+      saveState();
+    }
+
+    function saveState() {
+      if (currentUser) {
+        localStorage.setItem(`ft_inventory_${currentUser}`, JSON.stringify(inventory));
+        localStorage.setItem(`ft_barcodemap_${currentUser}`, JSON.stringify(barcodeMap));
+      }
+      updateCompanyFilterDropdown();
+      updateCounts();
+      if (googleScriptUrl) {
+        syncToGoogleSheets(true); // silent auto-sync
+      }
+    }
+
+    // --- GOOGLE SHEETS & DRIVE SYNC VIA GOOGLE APPS SCRIPT ---
+    async function syncToGoogleSheets(silent = false) {
+      if (!googleScriptUrl) {
+        if (!silent) showToast('Please enter Google Apps Script URL in Login settings', 'error');
+        return;
+      }
+
+      const syncStatusBadge = document.getElementById('syncStatusBadge');
+      if (!silent) showToast('Syncing to Google Sheet on Drive...');
+      syncStatusBadge.innerText = "Syncing...";
+      syncStatusBadge.className = "text-amber-400 animate-pulse";
+
+      const payload = {
+        user: currentUser,
+        items: inventory
+      };
+
+      try {
+        await fetch(googleScriptUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        syncStatusBadge.innerText = "Google Sheet Synced";
+        syncStatusBadge.className = "text-emerald-400";
+        if (!silent) showToast('Data saved to Google Sheet on Google Drive!');
+      } catch (err) {
+        console.error("Sync error:", err);
+        syncStatusBadge.innerText = "Sync Failed";
+        syncStatusBadge.className = "text-rose-400";
+        if (!silent) showToast('Failed to sync to Google Sheets', 'error');
+      }
+    }
+
+    // --- NAVIGATION TABS ---
+    function switchTab(tabId) {
+      document.getElementById('tab-scan').classList.add('hidden');
+      document.getElementById('tab-inventory').classList.add('hidden');
+      document.getElementById('tab-mapping').classList.add('hidden');
+
+      document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+
+      document.getElementById('tab-' + tabId).classList.remove('hidden');
+      document.getElementById('nav-' + tabId).classList.add('active');
+
+      if (tabId !== 'scan' && isScannerRunning) {
+        stopScanner();
+      }
+      if (tabId === 'inventory') renderInventoryList();
+      if (tabId === 'mapping') renderMappingList();
+    }
+
+    // --- BARCODE SCANNER & LOOKUP ---
+    function toggleScanner() {
+      const container = document.getElementById('reader-container');
+      if (isScannerRunning) {
+        stopScanner();
+        container.classList.add('hidden');
+      } else {
+        container.classList.remove('hidden');
+        startScanner();
+      }
+    }
+
+    function startScanner() {
+      if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode("reader");
+      }
+      const config = { fps: 10, qrbox: { width: 220, height: 120 } };
+      
+      html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+        .then(() => { isScannerRunning = true; })
+        .catch(err => {
+          showToast('Camera error or permission denied', 'error');
+          console.error(err);
+        });
+    }
+
+    function stopScanner() {
+      if (html5QrCode && isScannerRunning) {
+        html5QrCode.stop().then(() => {
+          isScannerRunning = false;
+          document.getElementById('reader-container').classList.add('hidden');
+        }).catch(err => console.error(err));
+      }
+    }
+
+    function onScanSuccess(decodedText) {
+      document.getElementById('barcodeInput').value = decodedText;
+      showToast('Barcode scanned successfully!');
+      lookupBarcode(decodedText);
+      stopScanner();
+    }
+
+    let inputTimeout = null;
+    function handleBarcodeManualInput(val) {
+      clearTimeout(inputTimeout);
+      if (val.trim().length >= 8) {
+        inputTimeout = setTimeout(() => {
+          lookupBarcode(val.trim());
+        }, 500);
+      }
+    }
+
+    async function lookupBarcode(barcode) {
+      const statusEl = document.getElementById('lookupStatus');
+      const googleBtn = document.getElementById('googleSearchBtn');
+      const nameInput = document.getElementById('productName');
+      const companyInput = document.getElementById('companyName');
+
+      if (!barcode || barcode.trim() === '') {
+        statusEl.innerHTML = '<span class="text-rose-400">Please enter a barcode number.</span>';
+        return;
+      }
+
+      barcode = barcode.trim();
+      googleBtn.classList.remove('hidden');
+
+      // 1. Check local mapping database first
+      if (barcodeMap[barcode]) {
+        const itemMap = typeof barcodeMap[barcode] === 'string' 
+          ? { name: barcodeMap[barcode], company: '', image: '' } 
+          : barcodeMap[barcode];
+
+        nameInput.value = itemMap.name || '';
+        companyInput.value = itemMap.company || '';
+        if (itemMap.image) {
+          setPreviewImage(itemMap.image);
+        }
+        statusEl.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-check"></i> Found in local database!</span>`;
+        showToast('Auto-filled from local database');
+        return;
+      }
+
+      // 2. Fetch from Open Food Facts API
+      statusEl.innerHTML = `<span class="text-amber-400 animate-pulse"><i class="fa-solid fa-spinner fa-spin"></i> Searching Open Food Facts API...</span>`;
+      
+      try {
+        const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+        const data = await response.json();
+
+        if (data.status === 1 && data.product) {
+          const rawName = data.product.product_name || data.product.product_name_en || '';
+          const quantityStr = data.product.quantity || data.product.net_weight_value ? `${data.product.net_weight_value || ''}${data.product.net_weight_unit || ''}` : '';
+          
+          let fullNameWithSize = rawName;
+          if (quantityStr && !rawName.toLowerCase().includes(quantityStr.toLowerCase())) {
+            fullNameWithSize = `${rawName} ${quantityStr}`.trim();
+          }
+
+          const brand = data.product.brands || data.product.brand_owner || '';
+          const imageUrl = data.product.image_front_small_url || data.product.image_url || '';
+
+          if (fullNameWithSize.trim() !== '') {
+            nameInput.value = fullNameWithSize;
+            companyInput.value = brand;
+            if (imageUrl) setPreviewImage(imageUrl);
+
+            // Save to local database map
+            barcodeMap[barcode] = {
+              name: fullNameWithSize,
+              company: brand,
+              image: imageUrl
+            };
+            saveState();
+
+            statusEl.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-check"></i> Found on Open Food Facts!</span>`;
+            showToast('Product found & mapped!');
+            return;
+          }
+        }
+        
+        statusEl.innerHTML = `<span class="text-slate-400">Not found in API. Click 'Google Search' or type manually.</span>`;
+        nameInput.focus();
+
+      } catch (error) {
+        statusEl.innerHTML = `<span class="text-slate-400">Lookup offline or failed. Enter manually or use Google Search.</span>`;
+      }
+    }
+
+    function handleImageUpload(input) {
+      if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          setPreviewImage(e.target.result);
+        }
+        reader.readAsDataURL(input.files[0]);
+      }
+    }
+
+    function setPreviewImage(url) {
+      currentImageDataUrl = url;
+      const imgEl = document.getElementById('productImagePreview');
+      const iconEl = document.getElementById('productImagePlaceholder');
+      if (url) {
+        imgEl.src = url;
+        imgEl.classList.remove('hidden');
+        iconEl.classList.add('hidden');
+      } else {
+        imgEl.src = '';
+        imgEl.classList.add('hidden');
+        iconEl.classList.remove('hidden');
+      }
+    }
+
+    function searchGoogleForBarcode() {
+      const barcode = document.getElementById('barcodeInput').value.trim();
+      if (!barcode) {
+        showToast('Please enter a barcode first', 'error');
+        return;
+      }
+      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(barcode + ' product name size')}`;
+      window.open(searchUrl, '_blank');
+    }
+
+    // --- FORM ACTIONS ---
+    function adjustQty(delta) {
+      const qtyInput = document.getElementById('productQty');
+      let currentVal = parseInt(qtyInput.value) || 1;
+      currentVal = Math.max(1, currentVal + delta);
+      qtyInput.value = currentVal;
+    }
+
+    function saveInventoryItem() {
+      const barcode = document.getElementById('barcodeInput').value.trim();
+      const name = document.getElementById('productName').value.trim();
+      const company = document.getElementById('companyName').value.trim();
+      const expiryDate = document.getElementById('expiryDate').value;
+      const reminderDays = parseInt(document.getElementById('reminderDays').value) || 7;
+      const category = document.getElementById('productCategory').value;
+      const qty = parseInt(document.getElementById('productQty').value) || 1;
+
+      if (!name) {
+        showToast('Product Name & Size is required', 'error');
+        return;
+      }
+      if (!expiryDate) {
+        showToast('Please select an Expiry Date', 'error');
+        return;
+      }
+
+      if (barcode) {
+        barcodeMap[barcode] = {
+          name: name,
+          company: company,
+          image: currentImageDataUrl
+        };
+      }
+
+      const newItem = {
+        id: Date.now().toString(),
+        barcode: barcode || 'N/A',
+        name: name,
+        company: company || 'Unspecified',
+        category: category,
+        expiryDate: expiryDate,
+        reminderDays: reminderDays,
+        qty: qty,
+        image: currentImageDataUrl,
+        status: 'active'
+      };
+
+      inventory.unshift(newItem);
+      saveState();
+
+      // Reset form
+      document.getElementById('barcodeInput').value = '';
+      document.getElementById('productName').value = '';
+      document.getElementById('companyName').value = '';
+      document.getElementById('expiryDate').value = '';
+      document.getElementById('reminderDays').value = '7';
+      document.getElementById('lookupStatus').innerText = '';
+      document.getElementById('googleSearchBtn').classList.add('hidden');
+      document.getElementById('productImageInput').value = '';
+      setPreviewImage('');
+      document.getElementById('productQty').value = 1;
+
+      showToast('Item saved to inventory!');
+    }
+
+    // --- INVENTORY & EXPIRY ALERTS ---
+    function getExpiryDaysDiff(expiryDateStr) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const expDate = new Date(expiryDateStr);
+      expDate.setHours(0, 0, 0, 0);
+      const diffTime = expDate - today;
+      return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    }
+
+    function getItemStatus(days, reminderThreshold) {
+      const threshold = reminderThreshold || 7;
+      if (days < 0) return { label: 'Expired', color: 'rose', bg: 'bg-rose-950/40', border: 'border-rose-800/80', badgeBg: 'bg-rose-500/20 text-rose-400 border-rose-500/30' };
+      if (days <= threshold) return { label: days === 0 ? 'Today' : `${days}d left`, color: 'amber', bg: 'bg-amber-950/40', border: 'border-amber-800/80', badgeBg: 'bg-amber-500/20 text-amber-400 border-amber-500/30' };
+      return { label: 'Safe', color: 'emerald', bg: 'bg-slate-800/80', border: 'border-slate-700/60', badgeBg: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' };
+    }
+
+    function updateCompanyFilterDropdown() {
+      const companySelect = document.getElementById('companyFilter');
+      const companies = [...new Set(inventory.map(i => i.company).filter(Boolean))];
+      
+      let html = '<option value="ALL">All Companies</option>';
+      companies.forEach(c => {
+        html += `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`;
+      });
+      companySelect.innerHTML = html;
+    }
+
+    function updateCounts() {
+      let expired = 0, soon = 0, good = 0;
+      
+      inventory.forEach(item => {
+        const diff = getExpiryDaysDiff(item.expiryDate);
+        const threshold = item.reminderDays || 7;
+        if (diff < 0) expired++;
+        else if (diff <= threshold) soon++;
+        else good++;
+      });
+
+      document.getElementById('count-all').innerText = inventory.length;
+      document.getElementById('count-expired').innerText = expired;
+      document.getElementById('count-soon').innerText = soon;
+      document.getElementById('count-good').innerText = good;
+
+      const navAlertBadge = document.getElementById('navAlertBadge');
+      if (expired > 0 || soon > 0) {
+        navAlertBadge.classList.remove('hidden');
+      } else {
+        navAlertBadge.classList.add('hidden');
+      }
+    }
+
+    function filterByStatus(status) {
+      currentFilterStatus = status;
+      document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('ring-2', 'ring-brand-500'));
+      event.currentTarget.classList.add('ring-2', 'ring-brand-500');
+      renderInventoryList();
+    }
+
+    function handleSearchInput() {
+      renderInventoryList();
+    }
+
+    function renderInventoryList() {
+      const container = document.getElementById('inventoryContainer');
+      const searchQuery = document.getElementById('searchInventoryInput').value.toLowerCase().trim();
+      const selectedCat = document.getElementById('categoryFilter').value;
+      const selectedCompany = document.getElementById('companyFilter').value;
+      const alertBanner = document.getElementById('companyAlertBanner');
+      const alertText = document.getElementById('companyAlertText');
+
+      let filtered = [...inventory];
+
+      if (currentFilterStatus === 'expired') {
+        filtered = filtered.filter(item => getExpiryDaysDiff(item.expiryDate) < 0);
+      } else if (currentFilterStatus === 'soon') {
+        filtered = filtered.filter(item => {
+          const d = getExpiryDaysDiff(item.expiryDate);
+          const threshold = item.reminderDays || 7;
+          return d >= 0 && d <= threshold;
+        });
+      } else if (currentFilterStatus === 'good') {
+        filtered = filtered.filter(item => {
+          const d = getExpiryDaysDiff(item.expiryDate);
+          const threshold = item.reminderDays || 7;
+          return d > threshold;
+        });
+      }
+
+      if (selectedCat !== 'ALL') {
+        filtered = filtered.filter(item => item.category === selectedCat);
+      }
+
+      if (selectedCompany !== 'ALL') {
+        filtered = filtered.filter(item => item.company === selectedCompany);
+      }
+
+      let companySearchDetected = false;
+      if (searchQuery) {
+        filtered = filtered.filter(item => {
+          const matchesName = item.name.toLowerCase().includes(searchQuery);
+          const matchesBarcode = item.barcode.includes(searchQuery);
+          const matchesCompany = (item.company || '').toLowerCase().includes(searchQuery);
+          
+          if (matchesCompany) companySearchDetected = true;
+          return matchesName || matchesBarcode || matchesCompany;
+        });
+      }
+
+      if (companySearchDetected || selectedCompany !== 'ALL') {
+        const expiringInCompany = filtered.filter(i => getExpiryDaysDiff(i.expiryDate) <= (i.reminderDays || 7));
+        alertBanner.classList.remove('hidden');
+        if (expiringInCompany.length > 0) {
+          alertText.innerHTML = `Found <strong>${filtered.length}</strong> items. <span class="text-rose-400 font-bold">${expiringInCompany.length} matching reminder windows!</span>`;
+        } else {
+          alertText.innerHTML = `Found <strong>${filtered.length}</strong> company products. All safe!`;
+        }
+      } else {
+        alertBanner.classList.add('hidden');
+      }
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-10 bg-slate-800/40 rounded-2xl border border-slate-800">
+            <i class="fa-solid fa-box-open text-3xl text-slate-600 mb-2"></i>
+            <p class="text-sm text-slate-400">No items found matching criteria</p>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(item => {
+        const daysLeft = getExpiryDaysDiff(item.expiryDate);
+        const status = getItemStatus(daysLeft, item.reminderDays);
+
+        // Color coding based on status selection (Discount = Green, Sold = Yellow, Discard = Red)
+        let customCardBg = status.bg;
+        let customBorder = status.border;
+        let statusBadgeText = status.label;
+
+        if (item.status === 'discounted') {
+          customCardBg = 'bg-emerald-950/50';
+          customBorder = 'border-emerald-500';
+          statusBadgeText = 'Discounted';
+        } else if (item.status === 'sold') {
+          customCardBg = 'bg-amber-950/50';
+          customBorder = 'border-amber-500';
+          statusBadgeText = 'Sold';
+        } else if (item.status === 'discarded') {
+          customCardBg = 'bg-rose-950/50';
+          customBorder = 'border-rose-500';
+          statusBadgeText = 'Discarded';
+        }
+
+        return `
+          <div class="${customCardBg} border ${customBorder} rounded-2xl p-3 shadow-md transition-all flex gap-3 items-center">
+            <div class="w-14 h-14 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center overflow-hidden shrink-0">
+              ${item.image ? `<img src="${item.image}" alt="" class="w-full h-full object-cover">` : `<i class="fa-solid fa-box text-slate-600 text-lg"></i>`}
+            </div>
+
+            <div class="flex-1 min-w-0">
+              <div class="flex items-start justify-between gap-1 mb-1">
+                <div class="truncate">
+                  <h3 class="font-semibold text-sm text-white leading-tight truncate">${escapeHtml(item.name)}</h3>
+                  <p class="text-[11px] text-brand-400 font-medium truncate">${escapeHtml(item.company || 'Unknown Brand')}</p>
+                </div>
+                <span class="px-2 py-0.5 rounded-lg text-[10px] font-bold border ${status.badgeBg} whitespace-nowrap shrink-0">
+                  ${statusBadgeText}
+                </span>
+              </div>
+
+              <div class="flex items-center gap-2 text-[10px] text-slate-400 mb-2">
+                <span class="font-mono bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-700/50">
+                  ${item.barcode}
+                </span>
+                <span><i class="fa-solid fa-tag text-[9px] mr-0.5"></i> ${item.category}</span>
+                <span>Qty: <strong class="text-white">${item.qty}</strong></span>
+                <span>Reminder: <strong class="text-amber-300">${item.reminderDays || 7}d</strong></span>
+              </div>
+
+              <div class="flex items-center justify-between pt-1 border-t border-slate-700/40 text-[11px]">
+                <span class="text-slate-400">Exp: <strong class="text-slate-200">${item.expiryDate}</strong></span>
+                
+                <div class="flex items-center gap-1">
+                  <button onclick="updateItemStatus('${item.id}', 'discounted')" title="Mark Discounted (Green)" class="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-[10px] font-medium transition-colors">
+                    Discount
+                  </button>
+                  <button onclick="updateItemStatus('${item.id}', 'sold')" title="Mark Sold (Yellow)" class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 text-[10px] font-medium transition-colors">
+                    Sold
+                  </button>
+                  <button onclick="updateItemStatus('${item.id}', 'discarded')" title="Mark Discarded (Red)" class="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 text-[10px] font-medium transition-colors">
+                    Discard
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function triggerNotificationAlert() {
+      if (Notification.permission === "granted") {
+        new Notification("Company Expiry Notice", {
+          body: "Filtering company items. Expiring items flagged!",
+          icon: "https://cdn-icons-png.flaticon.com/512/888/888857.png"
+        });
+      }
+      showToast('Notification alert triggered');
+    }
+
+    function updateItemStatus(itemId, newStatus) {
+      const item = inventory.find(i => i.id === itemId);
+      if (item) {
+        item.status = newStatus;
+        saveState();
+        renderInventoryList();
+        showToast(`Item updated to ${newStatus}`);
+      }
+    }
+
+    // --- BARCODE MAPPINGS DATABASE VIEW ---
+    function renderMappingList() {
+      const container = document.getElementById('mappingList');
+      const keys = Object.keys(barcodeMap);
+      document.getElementById('mappingCount').innerText = `${keys.length} codes`;
+
+      if (keys.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-500 text-center py-4">No mapped barcodes stored yet.</p>`;
+        return;
+      }
+
+      container.innerHTML = keys.map(code => {
+        const itemMap = typeof barcodeMap[code] === 'string' 
+          ? { name: barcodeMap[code], company: '', image: '' } 
+          : barcodeMap[code];
+
+        return `
+          <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between gap-2">
+            <div class="w-8 h-8 rounded bg-slate-900 border border-slate-800 shrink-0 overflow-hidden flex items-center justify-center">
+              ${itemMap.image ? `<img src="${itemMap.image}" class="w-full h-full object-cover">` : `<i class="fa-solid fa-barcode text-slate-600 text-xs"></i>`}
+            </div>
+            <div class="overflow-hidden flex-1 min-w-0">
+              <span class="font-mono text-xs text-brand-400 block truncate">${code}</span>
+              <span class="text-xs text-slate-200 font-medium truncate block">${escapeHtml(itemMap.name || '')}</span>
+              ${itemMap.company ? `<span class="text-[10px] text-slate-400 truncate block">${escapeHtml(itemMap.company)}</span>` : ''}
+            </div>
+            <button onclick="deleteMapping('${code}')" class="text-slate-500 hover:text-rose-400 p-1 text-xs transition-colors">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function deleteMapping(code) {
+      delete barcodeMap[code];
+      saveState();
+      renderMappingList();
+      showToast('Mapping deleted');
+    }
+
+    // --- NOTIFICATIONS SYSTEM ---
+    function requestNotificationPermission() {
+      if (!("Notification" in window)) {
+        showToast('Browser does not support desktop notifications', 'error');
+        return;
+      }
+      Notification.requestPermission().then(permission => {
+        if (permission === "granted") {
+          document.getElementById('notifBadge').classList.remove('hidden');
+          showToast('Notifications enabled!');
+          checkExpiryNotifications(true);
+        } else {
+          showToast('Notification permission denied', 'error');
+        }
+      });
+    }
+
+    function checkExpiryNotifications(forceToast = false) {
+      const criticalItems = inventory.filter(i => {
+        const days = getExpiryDaysDiff(i.expiryDate);
+        const threshold = i.reminderDays || 7;
+        return days <= threshold;
+      });
+      
+      if (criticalItems.length > 0 && Notification.permission === "granted") {
+        new Notification("FreshTrack Expiry Alert!", {
+          body: `Attention: ${criticalItems.length} product(s) have reached their reminder window or expired!`,
+          icon: "https://cdn-icons-png.flaticon.com/512/888/888857.png"
+        });
+      }
+
+      if (forceToast && criticalItems.length === 0) {
+        showToast('No critical expiry alerts right now');
+      }
+    }
+
+    // --- EXPORT TO FORMATTED EXCEL (.XLSX) ---
+    function exportExcelFormatted() {
+      if (inventory.length === 0) {
+        showToast('No inventory data to export', 'error');
+        return;
+      }
+
+      const excelData = inventory.map(item => {
+        const days = getExpiryDaysDiff(item.expiryDate);
+        let statusText = 'Safe';
+        const threshold = item.reminderDays || 7;
+        if (days < 0) statusText = 'Expired';
+        else if (days <= threshold) statusText = 'Reminder Window';
+
+        return {
+          "User": currentUser,
+          "ID": item.id,
+          "Barcode": item.barcode,
+          "Product Name & Size": item.name,
+          "Company / Brand": item.company || 'N/A',
+          "Category": item.category,
+          "Expiry Date": item.expiryDate,
+          "Reminder Days": item.reminderDays || 7,
+          "Days Remaining": days,
+          "Quantity": item.qty,
+          "Expiry Status": statusText,
+          "Item Action Status": item.status
+        };
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+      worksheet['!cols'] = [
+        { wch: 15 }, // User
+        { wch: 15 }, // ID
+        { wch: 18 }, // Barcode
+        { wch: 35 }, // Product Name & Size
+        { wch: 22 }, // Company / Brand
+        { wch: 15 }, // Category
+        { wch: 14 }, // Expiry Date
+        { wch: 15 }, // Reminder Days
+        { wch: 16 }, // Days Remaining
+        { wch: 10 }, // Quantity
+        { wch: 16 }, // Expiry Status
+        { wch: 18 }  // Item Action Status
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, `${currentUser}_Expiry`);
+
+      const fileName = `Expiry_Report_${currentUser}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+
+      showToast('Exported formatted Excel file!');
+    }
+
+    // --- UTILITIES ---
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMsg');
+      const toastIcon = document.getElementById('toastIcon');
+
+      toastMsg.innerText = message;
+      if (type === 'error') {
+        toastIcon.className = "fa-solid fa-circle-exclamation text-rose-400";
+      } else {
+        toastIcon.className = "fa-solid fa-circle-check text-emerald-400";
+      }
+
+      toast.classList.remove('opacity-0', 'pointer-events-none');
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'pointer-events-none');
+      }, 3000);
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>
